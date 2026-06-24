@@ -1093,6 +1093,38 @@ namespace ORB_SLAM3
         Mat image = _image.getMat();
         assert(image.type() == CV_8UC1 );
 
+        // ── Per-pixel gamma correction (Fan et al. / Gapuz 2025) ─────────────
+        // Applied to grayscale image before pyramid construction so that
+        // every scale level benefits from the enhanced detail.
+        // R1: invert → Gaussian blur → mask
+        Mat inverted = 255 - image;
+        Mat maskGamma;
+        cv::GaussianBlur(inverted, maskGamma, cv::Size(21, 21), 0);
+
+        // R2: per-pixel gamma map — lambda(i,j) = 2^((anchor - mask(i,j)) / 128)
+        Mat maskF;
+        maskGamma.convertTo(maskF, CV_64F);
+        Mat exponent = (80.0 - maskF) / 128.0;
+        Mat lambda;
+        cv::exp(exponent * std::log(2.0), lambda);
+        cv::max(lambda, 0.1, lambda);
+
+        // R3: apply correction directly to grayscale pixel values
+        // O(i,j) = 255 * (I(i,j)/255)^lambda(i,j)
+        Mat imageF;
+        image.convertTo(imageF, CV_64F);
+        imageF /= 255.0;
+        Mat logI;
+        cv::log(imageF, logI);
+        Mat corrected;
+        cv::exp(lambda.mul(logI), corrected);
+        corrected *= 255.0;
+        corrected = cv::min(corrected, 255.0);
+        corrected = cv::max(corrected, 0.0);
+        corrected += 0.5;
+        corrected.convertTo(image, CV_8U);
+        // ── End gamma correction ──────────────────────────────────────────────
+
         // Pre-compute the scale pyramid
         ComputePyramid(image);
 
