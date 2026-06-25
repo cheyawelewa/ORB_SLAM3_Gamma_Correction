@@ -4,6 +4,10 @@
 # Unignore all with extensions
 !*.*
 
+# Docker
+!Dockerfile
+!entrypoint.sh
+
 # Unignore all dirs
 !*/
 
