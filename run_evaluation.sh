@@ -1,9 +1,12 @@
 #!/bin/bash
 # Evaluate ATE and RPE for all EuRoC result folders matching 2026-*
+# Results are saved as JSON per run, then one plot per sequence is generated.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GT_DIR="$SCRIPT_DIR/evaluation/Ground_truth/EuRoC_left_cam"
 EVAL_SCRIPT="$SCRIPT_DIR/evaluation/evaluate_trajectory.py"
+PLOT_SCRIPT="$SCRIPT_DIR/evaluation/plot_summary.py"
+RESULTS_DIR="$SCRIPT_DIR/evaluation_results"
 
 # Map dataset ID -> groundtruth filename
 declare -A GT_MAP
@@ -26,17 +29,15 @@ if [ ! -d "${folders[0]}" ]; then
 fi
 
 echo "Found ${#folders[@]} result folder(s)"
+mkdir -p "$RESULTS_DIR"
 
 for folder in "${folders[@]}"; do
     folder_name="$(basename "$folder")"
 
-    # Find all frame files in this folder
     for frame_file in "$folder"/f_dataset-*_stereo_inertial.txt; do
         [ -f "$frame_file" ] || continue
 
         fname="$(basename "$frame_file")"
-
-        # Extract dataset ID (e.g. MH01) from filename
         dataset_id="$(echo "$fname" | sed 's/f_dataset-\(.*\)_stereo_inertial\.txt/\1/')"
 
         gt_filename="${GT_MAP[$dataset_id]}"
@@ -60,10 +61,22 @@ for folder in "${folders[@]}"; do
         if [ -f "$kf_file" ]; then
             python3 "$EVAL_SCRIPT" "$gt_path" \
                 --frames "$frame_file" \
-                --keyframes "$kf_file"
+                --keyframes "$kf_file" \
+                --output_dir "$RESULTS_DIR" \
+                --dataset "$dataset_id" \
+                --run "$folder_name"
         else
             python3 "$EVAL_SCRIPT" "$gt_path" \
-                --frames "$frame_file"
+                --frames "$frame_file" \
+                --output_dir "$RESULTS_DIR" \
+                --dataset "$dataset_id" \
+                --run "$folder_name"
         fi
     done
 done
+
+# Generate one plot per sequence from all collected results
+echo "================================================================="
+echo "Generating plots..."
+python3 "$PLOT_SCRIPT" "$RESULTS_DIR"
+echo "Done. Plots saved to: $RESULTS_DIR"

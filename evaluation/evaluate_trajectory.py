@@ -12,6 +12,8 @@ Usage:
 
 import numpy as np
 import argparse
+import json
+import os
 import sys
 from scipy.spatial.transform import Rotation
 
@@ -202,79 +204,10 @@ def print_rpe(rpe, delta):
 
 
 # ---------------------------------------------------------------------------
-# Optional plots
-# ---------------------------------------------------------------------------
-
-def save_plots(label, pairs, est_poses, gt_poses, ate, rpe, delta):
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("  [warning] matplotlib not installed — skipping plots")
-        return
-
-    T_align = ate["T_align"]
-
-    gt_xyz = np.array([gt_poses[g][:3, 3] for _, g in pairs])
-    est_aligned = np.array([(T_align @ est_poses[e])[:3, 3] for e, _ in pairs])
-
-    fig, axes = plt.subplots(2, 2, figsize=(13, 10))
-    fig.suptitle(f"Trajectory Evaluation — {label}", fontsize=14)
-
-    # Top-view trajectory
-    ax = axes[0, 0]
-    ax.plot(gt_xyz[:, 0], gt_xyz[:, 1], "b-", linewidth=1, label="Ground Truth")
-    ax.plot(est_aligned[:, 0], est_aligned[:, 1], "r-", linewidth=1, alpha=0.8, label="Estimated (aligned)")
-    ax.set_xlabel("X (m)")
-    ax.set_ylabel("Y (m)")
-    ax.set_title("Trajectory — Top View")
-    ax.legend()
-    ax.set_aspect("equal")
-    ax.grid(True)
-
-    # ATE over frames
-    ax = axes[0, 1]
-    ax.plot(ate["errors"], linewidth=0.8, color="steelblue")
-    ax.axhline(ate["rmse"], color="r", linestyle="--", label=f"RMSE = {ate['rmse']:.4f} m")
-    ax.set_xlabel("Frame")
-    ax.set_ylabel("Error (m)")
-    ax.set_title("ATE per Frame")
-    ax.legend()
-    ax.grid(True)
-
-    # RPE translation
-    ax = axes[1, 0]
-    ax.plot(rpe["trans_errors"], linewidth=0.8, color="darkorange")
-    ax.axhline(rpe["trans_rmse"], color="r", linestyle="--",
-               label=f"RMSE = {rpe['trans_rmse']:.4f} m")
-    ax.set_xlabel("Frame pair")
-    ax.set_ylabel("Error (m)")
-    ax.set_title(f"RPE Translation (delta={delta})")
-    ax.legend()
-    ax.grid(True)
-
-    # RPE rotation
-    ax = axes[1, 1]
-    ax.plot(rpe["rot_errors"], linewidth=0.8, color="purple")
-    ax.axhline(rpe["rot_rmse"], color="r", linestyle="--",
-               label=f"RMSE = {rpe['rot_rmse']:.4f} deg")
-    ax.set_xlabel("Frame pair")
-    ax.set_ylabel("Error (deg)")
-    ax.set_title(f"RPE Rotation (delta={delta})")
-    ax.legend()
-    ax.grid(True)
-
-    plt.tight_layout()
-    outfile = f"evaluation_{label.lower().replace(' ', '_')}.png"
-    plt.savefig(outfile, dpi=150)
-    print(f"  Plots saved to: {outfile}")
-    plt.close()
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def evaluate(label, traj_file, gt_poses, max_diff, rpe_delta, save_plots_flag):
+def evaluate(label, traj_file, gt_poses, max_diff, rpe_delta):
     print(f"\n{'='*60}")
     print(f"Evaluating {label}: {traj_file}")
     print("=" * 60)
@@ -288,7 +221,7 @@ def evaluate(label, traj_file, gt_poses, max_diff, rpe_delta, save_plots_flag):
 
     if len(pairs) < 3:
         print("  ERROR: too few associations — check timestamps or --max_diff")
-        return
+        return None
 
     ate = compute_ate(est_poses, gt_poses, pairs)
     rpe = compute_rpe(est_poses, gt_poses, pairs, delta=rpe_delta)
@@ -296,8 +229,14 @@ def evaluate(label, traj_file, gt_poses, max_diff, rpe_delta, save_plots_flag):
     print_ate(ate)
     print_rpe(rpe, rpe_delta)
 
-    if save_plots_flag:
-        save_plots(label, pairs, est_poses, gt_poses, ate, rpe, rpe_delta)
+    return {
+        "ate_errors":       ate["errors"].tolist(),
+        "ate_rmse":         ate["rmse"],
+        "rpe_trans_errors": rpe["trans_errors"].tolist(),
+        "rpe_trans_rmse":   rpe["trans_rmse"],
+        "rpe_rot_errors":   rpe["rot_errors"].tolist(),
+        "rpe_rot_rmse":     rpe["rot_rmse"],
+    }
 
 
 def main():
@@ -306,15 +245,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("groundtruth", help="Ground truth file (TUM format)")
-    parser.add_argument("--frames",    help="Estimated frame trajectory (TUM format)")
-    parser.add_argument("--keyframes", help="Estimated keyframe trajectory (TUM format)")
-    parser.add_argument("--max_diff", type=float, default=0.02,
+    parser.add_argument("groundtruth",   help="Ground truth file (TUM format)")
+    parser.add_argument("--frames",      help="Estimated frame trajectory (TUM format)")
+    parser.add_argument("--keyframes",   help="Estimated keyframe trajectory (TUM format)")
+    parser.add_argument("--max_diff",    type=float, default=0.02,
                         help="Max timestamp difference for association in seconds (default: 0.02)")
-    parser.add_argument("--rpe_delta", type=int, default=1,
+    parser.add_argument("--rpe_delta",   type=int, default=1,
                         help="Frame step for RPE computation (default: 1)")
-    parser.add_argument("--save_plots", action="store_true",
-                        help="Save PNG plots of trajectory and errors")
+    parser.add_argument("--output_dir",  help="Directory to save per-run JSON results for plotting")
+    parser.add_argument("--dataset",     help="Dataset ID (e.g. MH01) — used for output filename")
+    parser.add_argument("--run",         help="Run label (e.g. folder name) — used for output filename")
     args = parser.parse_args()
 
     if not args.frames and not args.keyframes:
@@ -324,13 +264,21 @@ def main():
     gt_poses = read_trajectory(args.groundtruth)
     print(f"  Loaded {len(gt_poses)} poses")
 
-    if args.frames:
-        evaluate("Frames", args.frames, gt_poses,
-                 args.max_diff, args.rpe_delta, args.save_plots)
-
-    if args.keyframes:
-        evaluate("Keyframes", args.keyframes, gt_poses,
-                 args.max_diff, args.rpe_delta, args.save_plots)
+    for traj_type, traj_file in [("frames", args.frames), ("keyframes", args.keyframes)]:
+        if not traj_file:
+            continue
+        result = evaluate(traj_type.capitalize(), traj_file, gt_poses,
+                          args.max_diff, args.rpe_delta)
+        if result and args.output_dir and args.dataset and args.run:
+            os.makedirs(args.output_dir, exist_ok=True)
+            out_path = os.path.join(args.output_dir,
+                                    f"{args.dataset}_{args.run}_{traj_type}.json")
+            with open(out_path, "w") as f:
+                json.dump({"dataset": args.dataset,
+                           "run":     args.run,
+                           "type":    traj_type,
+                           **result}, f)
+            print(f"  Results saved to: {out_path}")
 
 
 if __name__ == "__main__":
