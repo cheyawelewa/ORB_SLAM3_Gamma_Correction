@@ -22,8 +22,8 @@ from scipy.spatial.transform import Rotation
 # I/O
 # ---------------------------------------------------------------------------
 
-def read_trajectory(filepath):
-    """Read a TUM-format trajectory file -> {timestamp: 4x4 np.array}."""
+def read_tum(filepath):
+    """Read TUM-format file: timestamp tx ty tz qx qy qz qw"""
     poses = {}
     with open(filepath, "r") as f:
         for line in f:
@@ -36,13 +36,48 @@ def read_trajectory(filepath):
             ts = float(parts[0])
             tx, ty, tz = float(parts[1]), float(parts[2]), float(parts[3])
             qx, qy, qz, qw = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
-
             R = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
             T = np.eye(4)
             T[:3, :3] = R
             T[:3, 3] = [tx, ty, tz]
             poses[ts] = T
     return poses
+
+
+def read_euroc_csv(filepath):
+    """
+    Read EuRoC groundtruth data.csv.
+    Format: timestamp[ns], px, py, pz, qw, qx, qy, qz, ...
+    Timestamps are converted from nanoseconds to seconds.
+    """
+    poses = {}
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",")
+            if len(parts) < 8:
+                continue
+            try:
+                ts = float(parts[0]) * 1e-9   # ns -> s
+                tx, ty, tz = float(parts[1]), float(parts[2]), float(parts[3])
+                qw, qx, qy, qz = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
+            except ValueError:
+                continue  # skip header row
+            R = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
+            T = np.eye(4)
+            T[:3, :3] = R
+            T[:3, 3] = [tx, ty, tz]
+            poses[ts] = T
+    return poses
+
+
+def read_trajectory(filepath):
+    """Auto-detect format: EuRoC data.csv or TUM text file."""
+    if os.path.basename(filepath) == "data.csv":
+        return read_euroc_csv(filepath)
+    return read_tum(filepath)
 
 
 # ---------------------------------------------------------------------------

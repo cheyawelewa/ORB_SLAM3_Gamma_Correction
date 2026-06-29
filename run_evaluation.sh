@@ -3,24 +3,24 @@
 # Results are saved as JSON per run, then one plot per sequence is generated.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GT_DIR="$SCRIPT_DIR/evaluation/Ground_truth/EuRoC_left_cam"
+DATASETS_DIR="$SCRIPT_DIR/Datasets/EuRoc"
 EVAL_SCRIPT="$SCRIPT_DIR/evaluation/evaluate_trajectory.py"
 PLOT_SCRIPT="$SCRIPT_DIR/evaluation/plot_summary.py"
 RESULTS_DIR="$SCRIPT_DIR/evaluation_results"
 
-# Map dataset ID -> groundtruth filename
+# Map dataset ID -> EuRoC sequence folder name
 declare -A GT_MAP
-GT_MAP["MH01"]="MH01_GT.txt"
-GT_MAP["MH02"]="MH02_GT.txt"
-GT_MAP["MH03"]="MH03_GT.txt"
-GT_MAP["MH04"]="MH04_GT.txt"
-GT_MAP["MH05"]="MH05_GT.txt"
-GT_MAP["V101"]="V101_GT.txt"
-GT_MAP["V102"]="V102_GT.txt"
-GT_MAP["V103"]="V103_GT.txt"
-GT_MAP["V201"]="V201_GT.txt"
-GT_MAP["V202"]="V202_GT.txt"
-GT_MAP["V203"]="V203_GT.txt"
+GT_MAP["MH01"]="MH_01_easy"
+GT_MAP["MH02"]="MH_02_easy"
+GT_MAP["MH03"]="MH_03_medium"
+GT_MAP["MH04"]="MH_04_difficult"
+GT_MAP["MH05"]="MH_05_difficult"
+GT_MAP["V101"]="V1_01_easy"
+GT_MAP["V102"]="V1_02_medium"
+GT_MAP["V103"]="V1_03_difficult"
+GT_MAP["V201"]="V2_01_easy"
+GT_MAP["V202"]="V2_02_medium"
+GT_MAP["V203"]="V2_03_difficult"
 
 folders=("$SCRIPT_DIR"/2026-*)
 if [ ! -d "${folders[0]}" ]; then
@@ -40,13 +40,13 @@ for folder in "${folders[@]}"; do
         fname="$(basename "$frame_file")"
         dataset_id="$(echo "$fname" | sed 's/f_dataset-\(.*\)_stereo_inertial\.txt/\1/')"
 
-        gt_filename="${GT_MAP[$dataset_id]}"
-        if [ -z "$gt_filename" ]; then
+        seq_folder="${GT_MAP[$dataset_id]}"
+        if [ -z "$seq_folder" ]; then
             echo "[SKIP] $folder_name — no groundtruth mapping for: $dataset_id"
             continue
         fi
 
-        gt_path="$GT_DIR/$gt_filename"
+        gt_path="$DATASETS_DIR/$seq_folder/mav0/state_groundtruth_estimate0/data.csv"
         if [ ! -f "$gt_path" ]; then
             echo "[SKIP] groundtruth not found: $gt_path"
             continue
@@ -56,7 +56,7 @@ for folder in "${folders[@]}"; do
 
         echo "================================================================="
         echo "Folder  : $folder_name"
-        echo "Dataset : $dataset_id  ->  $gt_filename"
+        echo "Dataset : $dataset_id  ->  $seq_folder"
 
         if [ -f "$kf_file" ]; then
             python3 "$EVAL_SCRIPT" "$gt_path" \
