@@ -110,6 +110,33 @@ def plot_sequence(dataset, entries, output_dir):
     print(f"  Saved: {outfile}")
 
 
+def write_summary_txt(grouped, datasets, output_dir):
+    """Write all results to a single human-readable txt file."""
+    outfile = os.path.join(output_dir, "evaluation_summary.txt")
+    col = "{:<8} {:<40} {:<12} {:>12} {:>12} {:>12}"
+    header = col.format("Dataset", "Run", "Type", "ATE RMSE(m)", "RPE T RMSE(m)", "RPE R RMSE(deg)")
+    divider = "-" * len(header)
+
+    with open(outfile, "w") as f:
+        f.write("EuRoC Trajectory Evaluation Results\n")
+        f.write("=" * len(header) + "\n\n")
+        f.write(header + "\n")
+        f.write(divider + "\n")
+        for dataset in datasets:
+            for entry in sorted(grouped[dataset], key=lambda e: (e["run"], e["type"])):
+                f.write(col.format(
+                    entry["dataset"],
+                    entry["run"],
+                    entry["type"],
+                    f"{entry['ate_rmse']:.6f}",
+                    f"{entry['rpe_trans_rmse']:.6f}",
+                    f"{entry['rpe_rot_rmse']:.4f}",
+                ) + "\n")
+            f.write(divider + "\n")
+
+    print(f"  Summary saved: {outfile}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot per-sequence evaluation results")
     parser.add_argument("results_dir", help="Directory containing JSON result files")
@@ -124,13 +151,15 @@ def main():
         print(f"No JSON result files found in: {args.results_dir}")
         sys.exit(1)
 
-    # Plot in canonical EuRoC order, then any extras
+    # Process in canonical EuRoC order, then any extras
     datasets = [d for d in SEQUENCE_ORDER if d in grouped]
     datasets += [d for d in sorted(grouped) if d not in datasets]
 
     print(f"Generating plots for {len(datasets)} sequence(s)...")
     for dataset in datasets:
         plot_sequence(dataset, grouped[dataset], output_dir)
+
+    write_summary_txt(grouped, datasets, output_dir)
 
 
 if __name__ == "__main__":

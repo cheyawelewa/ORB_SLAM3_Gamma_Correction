@@ -34,6 +34,8 @@ def read_tum(filepath):
             if len(parts) < 8:
                 continue
             ts = float(parts[0])
+            if ts > 1e15:
+                ts *= 1e-9
             tx, ty, tz = float(parts[1]), float(parts[2]), float(parts[3])
             qx, qy, qz, qw = float(parts[4]), float(parts[5]), float(parts[6]), float(parts[7])
             R = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
