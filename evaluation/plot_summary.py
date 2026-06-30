@@ -98,28 +98,30 @@ def plot_sequence(dataset, entries, output_dir):
 
 
 def write_csv_data(grouped, datasets, output_dir):
-    """Save per-run error arrays as CSVs for use in external plotting tools."""
+    """Save per-run error arrays into one CSV per run for external plotting tools."""
     csv_dir = os.path.join(output_dir, "csv")
     os.makedirs(csv_dir, exist_ok=True)
 
     for dataset in datasets:
         for entry in grouped[dataset]:
-            run    = entry["run"]
-            prefix = os.path.join(csv_dir, f"{dataset}_{run}")
+            run      = entry["run"]
+            ate      = entry.get("ate_errors", [])
+            rpe_t    = entry.get("rpe_trans_errors", [])
+            rpe_r    = entry.get("rpe_rot_errors", [])
+            n_rows   = max(len(ate), len(rpe_t))
 
-            if "ate_errors" in entry:
-                with open(f"{prefix}_ATE.csv", "w", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["keyframe_index", "ate_error_m"])
-                    for i, e in enumerate(entry["ate_errors"]):
-                        writer.writerow([i, e])
-
-            if "rpe_trans_errors" in entry:
-                with open(f"{prefix}_RPE.csv", "w", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["frame_pair_index", "rpe_trans_error_m", "rpe_rot_error_deg"])
-                    for i, (t, r) in enumerate(zip(entry["rpe_trans_errors"], entry["rpe_rot_errors"])):
-                        writer.writerow([i, t, r])
+            outfile  = os.path.join(csv_dir, f"{dataset}_{run}.csv")
+            with open(outfile, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["keyframe_index", "ate_error_m",
+                                 "frame_pair_index", "rpe_trans_error_m", "rpe_rot_error_deg"])
+                for i in range(n_rows):
+                    kf_idx  = i          if i < len(ate)   else ""
+                    ate_val = ate[i]     if i < len(ate)   else ""
+                    fp_idx  = i          if i < len(rpe_t) else ""
+                    t_val   = rpe_t[i]   if i < len(rpe_t) else ""
+                    r_val   = rpe_r[i]   if i < len(rpe_r) else ""
+                    writer.writerow([kf_idx, ate_val, fp_idx, t_val, r_val])
 
     print(f"  CSV data saved to: {csv_dir}/")
 
