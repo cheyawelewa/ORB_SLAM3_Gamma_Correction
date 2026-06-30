@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import csv
 import json
 import os
 import sys
@@ -96,6 +97,33 @@ def plot_sequence(dataset, entries, output_dir):
     print(f"  Saved: {outfile}")
 
 
+def write_csv_data(grouped, datasets, output_dir):
+    """Save per-run error arrays as CSVs for use in external plotting tools."""
+    csv_dir = os.path.join(output_dir, "csv")
+    os.makedirs(csv_dir, exist_ok=True)
+
+    for dataset in datasets:
+        for entry in grouped[dataset]:
+            run    = entry["run"]
+            prefix = os.path.join(csv_dir, f"{dataset}_{run}")
+
+            if "ate_errors" in entry:
+                with open(f"{prefix}_ATE.csv", "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["keyframe_index", "ate_error_m"])
+                    for i, e in enumerate(entry["ate_errors"]):
+                        writer.writerow([i, e])
+
+            if "rpe_trans_errors" in entry:
+                with open(f"{prefix}_RPE.csv", "w", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["frame_pair_index", "rpe_trans_error_m", "rpe_rot_error_deg"])
+                    for i, (t, r) in enumerate(zip(entry["rpe_trans_errors"], entry["rpe_rot_errors"])):
+                        writer.writerow([i, t, r])
+
+    print(f"  CSV data saved to: {csv_dir}/")
+
+
 def write_summary_txt(grouped, datasets, output_dir):
     """Write all results to a single human-readable txt file."""
     outfile = os.path.join(output_dir, "evaluation_summary.txt")
@@ -142,6 +170,7 @@ def main():
     for dataset in datasets:
         plot_sequence(dataset, grouped[dataset], output_dir)
 
+    write_csv_data(grouped, datasets, output_dir)
     write_summary_txt(grouped, datasets, output_dir)
 
 
