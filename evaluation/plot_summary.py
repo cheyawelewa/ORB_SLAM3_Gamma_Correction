@@ -48,56 +48,42 @@ def plot_sequence(dataset, entries, output_dir):
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
     fig.suptitle(f"EuRoC {dataset} — All Runs", fontsize=14)
 
-    # Assign a color per unique run label
     run_labels = sorted({e["run"] for e in entries})
     colors = cm.tab10(np.linspace(0, 0.9, len(run_labels)))
     color_map = {r: colors[i] for i, r in enumerate(run_labels)}
 
-    # Track which labels have been added to the legend
-    seen_labels = set()
-
     for entry in entries:
         run   = entry["run"]
-        ttype = entry["type"]           # "frames" or "keyframes"
         color = color_map[run]
-        ls    = "-" if ttype == "frames" else "--"
-        rmse_ate   = entry["ate_rmse"]
-        rmse_trans = entry["rpe_trans_rmse"]
-        rmse_rot   = entry["rpe_rot_rmse"]
-        legend_label = f"{run} ({ttype})"
+        kw    = dict(color=color, linewidth=0.9, alpha=0.85)
 
-        ate_errors   = entry["ate_errors"]
-        trans_errors = entry["rpe_trans_errors"]
-        rot_errors   = entry["rpe_rot_errors"]
+        # ATE (from keyframes)
+        if "ate_errors" in entry:
+            axes[0].plot(entry["ate_errors"], label=run, **kw)
+            axes[0].axhline(entry["ate_rmse"], color=color, linestyle=":", linewidth=0.8, alpha=0.6)
 
-        kw = dict(color=color, linestyle=ls, linewidth=0.9, alpha=0.85)
+        # RPE translation (from frames)
+        if "rpe_trans_errors" in entry:
+            axes[1].plot(entry["rpe_trans_errors"], label=run, **kw)
+            axes[1].axhline(entry["rpe_trans_rmse"], color=color, linestyle=":", linewidth=0.8, alpha=0.6)
 
-        # ATE
-        axes[0].plot(ate_errors, label=legend_label if legend_label not in seen_labels else "_",
-                     **kw)
-        axes[0].axhline(rmse_ate, color=color, linestyle=":", linewidth=0.8, alpha=0.6)
-        seen_labels.add(legend_label)
+        # RPE rotation (from frames)
+        if "rpe_rot_errors" in entry:
+            axes[2].plot(entry["rpe_rot_errors"], label=run, **kw)
+            axes[2].axhline(entry["rpe_rot_rmse"], color=color, linestyle=":", linewidth=0.8, alpha=0.6)
 
-        # RPE translation
-        axes[1].plot(trans_errors, **kw)
-        axes[1].axhline(rmse_trans, color=color, linestyle=":", linewidth=0.8, alpha=0.6)
-
-        # RPE rotation
-        axes[2].plot(rot_errors, **kw)
-        axes[2].axhline(rmse_rot, color=color, linestyle=":", linewidth=0.8, alpha=0.6)
-
-    axes[0].set_title("ATE per Frame")
-    axes[0].set_xlabel("Frame")
+    axes[0].set_title("ATE (keyframes)")
+    axes[0].set_xlabel("Keyframe")
     axes[0].set_ylabel("Error (m)")
     axes[0].grid(True)
     axes[0].legend(fontsize=7, loc="upper left")
 
-    axes[1].set_title("RPE Translation")
+    axes[1].set_title("RPE Translation (frames)")
     axes[1].set_xlabel("Frame pair")
     axes[1].set_ylabel("Error (m)")
     axes[1].grid(True)
 
-    axes[2].set_title("RPE Rotation")
+    axes[2].set_title("RPE Rotation (frames)")
     axes[2].set_xlabel("Frame pair")
     axes[2].set_ylabel("Error (deg)")
     axes[2].grid(True)
@@ -113,25 +99,22 @@ def plot_sequence(dataset, entries, output_dir):
 def write_summary_txt(grouped, datasets, output_dir):
     """Write all results to a single human-readable txt file."""
     outfile = os.path.join(output_dir, "evaluation_summary.txt")
-    col = "{:<8} {:<40} {:<12} {:>12} {:>12} {:>12}"
-    header = col.format("Dataset", "Run", "Type", "ATE RMSE(m)", "RPE T RMSE(m)", "RPE R RMSE(deg)")
+    col = "{:<8} {:<40} {:>14} {:>14} {:>16}"
+    header = col.format("Dataset", "Run", "ATE RMSE(m)", "RPE T RMSE(m)", "RPE R RMSE(deg)")
     divider = "-" * len(header)
 
     with open(outfile, "w") as f:
         f.write("EuRoC Trajectory Evaluation Results\n")
+        f.write("ATE from keyframes | RPE from frames\n")
         f.write("=" * len(header) + "\n\n")
         f.write(header + "\n")
         f.write(divider + "\n")
         for dataset in datasets:
-            for entry in sorted(grouped[dataset], key=lambda e: (e["run"], e["type"])):
-                f.write(col.format(
-                    entry["dataset"],
-                    entry["run"],
-                    entry["type"],
-                    f"{entry['ate_rmse']:.6f}",
-                    f"{entry['rpe_trans_rmse']:.6f}",
-                    f"{entry['rpe_rot_rmse']:.4f}",
-                ) + "\n")
+            for entry in sorted(grouped[dataset], key=lambda e: e["run"]):
+                ate   = f"{entry['ate_rmse']:.6f}"   if "ate_rmse"       in entry else "N/A"
+                trans = f"{entry['rpe_trans_rmse']:.6f}" if "rpe_trans_rmse" in entry else "N/A"
+                rot   = f"{entry['rpe_rot_rmse']:.4f}"   if "rpe_rot_rmse"   in entry else "N/A"
+                f.write(col.format(entry["dataset"], entry["run"], ate, trans, rot) + "\n")
             f.write(divider + "\n")
 
     print(f"  Summary saved: {outfile}")

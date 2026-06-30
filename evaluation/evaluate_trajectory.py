@@ -244,54 +244,66 @@ def print_rpe(rpe, delta):
 # Main
 # ---------------------------------------------------------------------------
 
-def evaluate(label, traj_file, gt_poses, max_diff, rpe_delta):
-    print(f"\n{'='*60}")
-    print(f"Evaluating {label}: {traj_file}")
-    print("=" * 60)
+def evaluate(gt_poses, frames_file, kf_file, max_diff, rpe_delta):
+    """
+    ATE  <- keyframes (global consistency of the sparse map)
+    RPE  <- frames    (local drift over dense consecutive poses)
+    """
+    result = {}
 
-    est_poses = read_trajectory(traj_file)
-    print(f"  Estimated poses : {len(est_poses)}")
-    print(f"  Ground truth    : {len(gt_poses)}")
+    # --- ATE from keyframes ---
+    if kf_file:
+        print(f"\n[ATE] Keyframes: {kf_file}")
+        kf_poses = read_trajectory(kf_file)
+        kf_pairs = associate(kf_poses, gt_poses, max_diff=max_diff)
+        print(f"  Poses: {len(kf_poses)}  |  Associated: {len(kf_pairs)}")
+        if len(kf_pairs) >= 3:
+            ate = compute_ate(kf_poses, gt_poses, kf_pairs)
+            print_ate(ate)
+            result["ate_errors"] = ate["errors"].tolist()
+            result["ate_rmse"]   = ate["rmse"]
+        else:
+            print("  ERROR: too few associations for ATE")
+    else:
+        print("\n[ATE] No keyframe file provided — skipping ATE")
 
-    pairs = associate(est_poses, gt_poses, max_diff=max_diff)
-    print(f"  Associated pairs: {len(pairs)}")
+    # --- RPE from frames ---
+    if frames_file:
+        print(f"\n[RPE] Frames: {frames_file}")
+        f_poses = read_trajectory(frames_file)
+        f_pairs = associate(f_poses, gt_poses, max_diff=max_diff)
+        print(f"  Poses: {len(f_poses)}  |  Associated: {len(f_pairs)}")
+        if len(f_pairs) >= 3:
+            rpe = compute_rpe(f_poses, gt_poses, f_pairs, delta=rpe_delta)
+            print_rpe(rpe, rpe_delta)
+            result["rpe_trans_errors"] = rpe["trans_errors"].tolist()
+            result["rpe_trans_rmse"]   = rpe["trans_rmse"]
+            result["rpe_rot_errors"]   = rpe["rot_errors"].tolist()
+            result["rpe_rot_rmse"]     = rpe["rot_rmse"]
+        else:
+            print("  ERROR: too few associations for RPE")
+    else:
+        print("\n[RPE] No frame file provided — skipping RPE")
 
-    if len(pairs) < 3:
-        print("  ERROR: too few associations — check timestamps or --max_diff")
-        return None
-
-    ate = compute_ate(est_poses, gt_poses, pairs)
-    rpe = compute_rpe(est_poses, gt_poses, pairs, delta=rpe_delta)
-
-    print_ate(ate)
-    print_rpe(rpe, rpe_delta)
-
-    return {
-        "ate_errors":       ate["errors"].tolist(),
-        "ate_rmse":         ate["rmse"],
-        "rpe_trans_errors": rpe["trans_errors"].tolist(),
-        "rpe_trans_rmse":   rpe["trans_rmse"],
-        "rpe_rot_errors":   rpe["rot_errors"].tolist(),
-        "rpe_rot_rmse":     rpe["rot_rmse"],
-    }
+    return result if result else None
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compute ATE and RPE for SLAM trajectory evaluation",
+        description="Compute ATE (keyframes) and RPE (frames) for SLAM trajectory evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("groundtruth",   help="Ground truth file (TUM format)")
-    parser.add_argument("--frames",      help="Estimated frame trajectory (TUM format)")
-    parser.add_argument("--keyframes",   help="Estimated keyframe trajectory (TUM format)")
-    parser.add_argument("--max_diff",    type=float, default=0.02,
+    parser.add_argument("groundtruth",  help="Ground truth file (EuRoC data.csv or TUM format)")
+    parser.add_argument("--frames",     help="Frame trajectory file — used for RPE")
+    parser.add_argument("--keyframes",  help="Keyframe trajectory file — used for ATE")
+    parser.add_argument("--max_diff",   type=float, default=0.02,
                         help="Max timestamp difference for association in seconds (default: 0.02)")
-    parser.add_argument("--rpe_delta",   type=int, default=1,
+    parser.add_argument("--rpe_delta",  type=int, default=1,
                         help="Frame step for RPE computation (default: 1)")
-    parser.add_argument("--output_dir",  help="Directory to save per-run JSON results for plotting")
-    parser.add_argument("--dataset",     help="Dataset ID (e.g. MH01) — used for output filename")
-    parser.add_argument("--run",         help="Run label (e.g. folder name) — used for output filename")
+    parser.add_argument("--output_dir", help="Directory to save per-run JSON results for plotting")
+    parser.add_argument("--dataset",    help="Dataset ID (e.g. MH01) — used for output filename")
+    parser.add_argument("--run",        help="Run label (e.g. folder name) — used for output filename")
     args = parser.parse_args()
 
     if not args.frames and not args.keyframes:
@@ -301,21 +313,14 @@ def main():
     gt_poses = read_trajectory(args.groundtruth)
     print(f"  Loaded {len(gt_poses)} poses")
 
-    for traj_type, traj_file in [("frames", args.frames), ("keyframes", args.keyframes)]:
-        if not traj_file:
-            continue
-        result = evaluate(traj_type.capitalize(), traj_file, gt_poses,
-                          args.max_diff, args.rpe_delta)
-        if result and args.output_dir and args.dataset and args.run:
-            os.makedirs(args.output_dir, exist_ok=True)
-            out_path = os.path.join(args.output_dir,
-                                    f"{args.dataset}_{args.run}_{traj_type}.json")
-            with open(out_path, "w") as f:
-                json.dump({"dataset": args.dataset,
-                           "run":     args.run,
-                           "type":    traj_type,
-                           **result}, f)
-            print(f"  Results saved to: {out_path}")
+    result = evaluate(gt_poses, args.frames, args.keyframes, args.max_diff, args.rpe_delta)
+
+    if result and args.output_dir and args.dataset and args.run:
+        os.makedirs(args.output_dir, exist_ok=True)
+        out_path = os.path.join(args.output_dir, f"{args.dataset}_{args.run}.json")
+        with open(out_path, "w") as f:
+            json.dump({"dataset": args.dataset, "run": args.run, **result}, f)
+        print(f"\n  Results saved to: {out_path}")
 
 
 if __name__ == "__main__":
